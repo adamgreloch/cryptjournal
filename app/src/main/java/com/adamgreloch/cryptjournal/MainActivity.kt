@@ -1,6 +1,10 @@
 package com.adamgreloch.cryptjournal
 
+import android.content.Context
+import android.content.ContextWrapper
 import android.os.Bundle
+import android.util.Log
+import android.util.Log.println
 import android.widget.Toast
 import androidx.activity.compose.setContent
 import androidx.biometric.BiometricPrompt
@@ -14,6 +18,7 @@ import androidx.compose.material.icons.filled.Save
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -33,6 +38,7 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
 
         executor = ContextCompat.getMainExecutor(this)
+
         biometricPrompt = BiometricPrompt(this, executor,
             object : BiometricPrompt.AuthenticationCallback() {
                 override fun onAuthenticationError(errorCode: Int,
@@ -41,6 +47,7 @@ class MainActivity : FragmentActivity() {
                     Toast.makeText(applicationContext,
                         "Authentication error: $errString", Toast.LENGTH_SHORT)
                         .show()
+                    finishAndRemoveTask()
                 }
 
                 override fun onAuthenticationSucceeded(
@@ -61,6 +68,7 @@ class MainActivity : FragmentActivity() {
                     Toast.makeText(applicationContext, "Authentication failed",
                         Toast.LENGTH_SHORT)
                         .show()
+                    finishAndRemoveTask()
                 }
             })
 
@@ -96,11 +104,14 @@ private fun JournalView() {
 @Composable
 private fun AppBar(text: String) {
     var expanded by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     TopAppBar(
         title = { Text(stringResource(R.string.app_name)) },
         actions = {
-            IconButton(onClick = { openBuffer() }) {
+            IconButton(onClick = {
+                openBuffer(context)
+            }) {
                 Icon(Icons.Filled.Add, contentDescription = "Open journal buffer")
             }
             IconButton(onClick = {
@@ -129,15 +140,23 @@ private fun AppBar(text: String) {
     )
 }
 
+fun Context.getActivity(): FragmentActivity? = when (this) {
+    is FragmentActivity -> this
+    is ContextWrapper -> baseContext.getActivity()
+    else -> null
+}
+
 private fun importSecretKey() {
 }
 
-private fun openBuffer() {
-    println("open")
+private fun openBuffer(context: Context) {
+    createFile(context.getActivity() as FragmentActivity)
+
+    println(Log.INFO, null, "open")
 }
 
 private fun saveBuffer(text: String) {
-    println(encryptText(text, "", "", ""))
+    println(Log.VERBOSE, null, encryptText(text, "", "", ""))
 }
 
 @Composable
