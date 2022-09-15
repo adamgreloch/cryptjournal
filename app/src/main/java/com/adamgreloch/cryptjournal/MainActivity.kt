@@ -2,8 +2,8 @@ package com.adamgreloch.cryptjournal
 
 import android.os.Bundle
 import android.widget.Toast
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material.*
@@ -19,19 +19,58 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.LiveData
-import androidx.lifecycle.MutableLiveData
-import androidx.lifecycle.ViewModel
+import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
 import com.adamgreloch.cryptjournal.ui.theme.CryptjournalTheme
+import java.util.concurrent.Executor
 
-class MainActivity : ComponentActivity() {
+private lateinit var executor: Executor
+private lateinit var biometricPrompt: BiometricPrompt
+private lateinit var promptInfo: BiometricPrompt.PromptInfo
+
+class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent {
-            CryptjournalTheme {
-                JournalView()
-            }
-        }
+
+        executor = ContextCompat.getMainExecutor(this)
+        biometricPrompt = BiometricPrompt(this, executor,
+            object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationError(errorCode: Int,
+                                                   errString: CharSequence) {
+                    super.onAuthenticationError(errorCode, errString)
+                    Toast.makeText(applicationContext,
+                        "Authentication error: $errString", Toast.LENGTH_SHORT)
+                        .show()
+                }
+
+                override fun onAuthenticationSucceeded(
+                    result: BiometricPrompt.AuthenticationResult) {
+                    super.onAuthenticationSucceeded(result)
+                    Toast.makeText(applicationContext,
+                        "Authentication succeeded!", Toast.LENGTH_SHORT)
+                        .show()
+                    setContent {
+                        CryptjournalTheme {
+                            JournalView()
+                        }
+                    }
+                }
+
+                override fun onAuthenticationFailed() {
+                    super.onAuthenticationFailed()
+                    Toast.makeText(applicationContext, "Authentication failed",
+                        Toast.LENGTH_SHORT)
+                        .show()
+                }
+            })
+
+        promptInfo = BiometricPrompt.PromptInfo.Builder()
+            .setTitle("Access restricted")
+            .setSubtitle("Log in to Cryptjournal using your biometric credential")
+            .setNegativeButtonText("Use account password")
+            .build()
+
+        biometricPrompt.authenticate(promptInfo)
     }
 }
 
@@ -39,7 +78,7 @@ class MainActivity : ComponentActivity() {
     showBackground = true,
     showSystemUi = true)
 @Composable
-fun DefaultPreview(modifier: Modifier = Modifier) {
+private fun DefaultPreview(modifier: Modifier = Modifier) {
     CryptjournalTheme {
         JournalView()
     }
@@ -56,6 +95,8 @@ private fun JournalView() {
 
 @Composable
 private fun AppBar(text: String) {
+    var expanded by remember { mutableStateOf(false) }
+
     TopAppBar(
         title = { Text(stringResource(R.string.app_name)) },
         actions = {
@@ -67,11 +108,28 @@ private fun AppBar(text: String) {
             }) {
                 Icon(Icons.Filled.Save, contentDescription = "Save journal buffer")
             }
-            IconButton(onClick = { /* TODO */ }) {
+            IconButton(onClick = { expanded = true }) {
                 Icon(Icons.Filled.MoreVert, contentDescription = "More")
+            }
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false }) {
+                DropdownMenuItem(onClick = { importSecretKey() }) {
+                    Text("Import secret key")
+                }
+                DropdownMenuItem(onClick = { /* TODO */ }) {
+                    Text("Key info")
+                }
+                Divider()
+                DropdownMenuItem(onClick = { /* TODO */ }) {
+                    Text("About")
+                }
             }
         }
     )
+}
+
+private fun importSecretKey() {
 }
 
 private fun openBuffer() {
@@ -79,7 +137,7 @@ private fun openBuffer() {
 }
 
 private fun saveBuffer(text: String) {
-    println(text)
+    println(encryptText(text, "", "", ""))
 }
 
 @Composable
