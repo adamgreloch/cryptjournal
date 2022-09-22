@@ -1,25 +1,18 @@
 package com.adamgreloch.cryptjournal
 
-import android.annotation.SuppressLint
-import android.app.Activity
-import android.app.Instrumentation
-import android.content.ActivityNotFoundException
 import android.content.Context
-import android.content.ContextWrapper
-import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import android.util.Log.println
 import android.widget.Toast
 import androidx.activity.compose.setContent
-import androidx.activity.result.ActivityResult
-import androidx.activity.result.ActivityResultRegistry
-import androidx.activity.result.contract.ActivityResultContract
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.biometric.BiometricPrompt
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -28,14 +21,11 @@ import androidx.compose.material.icons.filled.Save
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.sp
-import androidx.core.app.ActivityCompat.startActivityForResult
-import androidx.core.app.ActivityOptionsCompat
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import com.adamgreloch.cryptjournal.ui.theme.CryptjournalTheme
@@ -74,7 +64,8 @@ class MainActivity : FragmentActivity() {
                     setContent {
                         CryptjournalTheme {
                             JournalView(
-                                onOpenBufferPress = { openDocument() }
+                                onOpenBufferPress = { text -> openEntry(text) },
+                                onSaveBufferPress = { text -> saveEntry(text) }
                             )
                         }
                     }
@@ -102,7 +93,23 @@ class MainActivity : FragmentActivity() {
         registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) {
                 uri -> setJournalPath(uri) }
 
-    fun openDocument() { startOpenDocumentTreeActivity.launch(null) }
+    fun openEntry(text: MutableState<String>) {
+        val sharedPref = this.getPreferences(Context.MODE_PRIVATE) ?: return
+        val lastFileName = sharedPref.getString("last_file_name", null)
+        val journalPath = sharedPref.getString("journal_path", null)
+
+        if (journalPath == null)
+            // Installation is fresh. Ask user to specify journal path
+            startOpenDocumentTreeActivity.launch(null)
+        else
+            println(Log.INFO, null, "journal_path found")
+
+        if (lastFileName == null) {
+            text.value = createNewEntryString()
+        }
+
+        println(Log.INFO, null, "open")
+    }
 
     private fun setJournalPath(uri: Uri?) {
         val sharedPref = this.getPreferences(Context.MODE_PRIVATE) ?: return
@@ -113,6 +120,10 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    private fun saveEntry(text: MutableState<String>) {
+        println(Log.VERBOSE, null, text.value)
+    }
+
 }
 
 @Preview(
@@ -121,32 +132,35 @@ class MainActivity : FragmentActivity() {
 @Composable
 private fun DefaultPreview(modifier: Modifier = Modifier) {
     CryptjournalTheme {
-        JournalView {}
+        JournalView({}, {})
     }
 }
 
 @Composable
-private fun JournalView(onOpenBufferPress: () -> Unit) {
-    var text = rememberSaveable { mutableStateOf("") }
+private fun JournalView(onOpenBufferPress: (MutableState<String>) -> Unit,
+                        onSaveBufferPress: (MutableState<String>) -> Unit) {
+    val text = rememberSaveable { mutableStateOf("") }
 
-    Scaffold(topBar = { AppBar(onOpenBufferPress, text) }) {
-        EditorField(text = text.value, onTextChange = { text.value = it })
-    }
+    Scaffold(
+        topBar = { AppBar(onOpenBufferPress, onSaveBufferPress, text) },
+        content = { paddingValues ->
+            EditorField(text = text.value, onTextChange = { text.value = it }, paddingValues = paddingValues)
+        })
 }
 
 @Composable
-private fun AppBar(onOpenBufferPress: () -> Unit, text: MutableState<String>) {
+private fun AppBar(onOpenBufferPress: (MutableState<String>) -> Unit,
+                   onSaveBufferPress: (MutableState<String>) -> Unit,
+                   text: MutableState<String>) {
     var expanded by remember { mutableStateOf(false) }
 
     TopAppBar(
         title = { Text(stringResource(R.string.app_name)) },
         actions = {
-            IconButton(onClick = onOpenBufferPress) {
+            IconButton(onClick = { onOpenBufferPress(text) }) {
                 Icon(Icons.Filled.Add, contentDescription = "Open journal buffer")
             }
-            IconButton(onClick = {
-                saveBuffer(text.value)
-            }) {
+            IconButton(onClick = { onSaveBufferPress(text) }) {
                 Icon(Icons.Filled.Save, contentDescription = "Save journal buffer")
             }
             IconButton(onClick = { expanded = true }) {
@@ -192,12 +206,6 @@ fun createNewEntryString() : String {
     return sb.toString()
 }
 
-fun Context.getActivity(): Activity = when (this) {
-    is FragmentActivity -> this
-    is ContextWrapper -> baseContext.getActivity()
-    else -> throw ActivityNotFoundException()
-}
-
 private fun importSecretKey() {
 }
 
@@ -226,7 +234,7 @@ private fun saveBuffer(text: String) {
 }
 
 @Composable
-private fun EditorField(text: String, onTextChange: (String) -> Unit) {
+private fun EditorField(text: String, onTextChange: (String) -> Unit, paddingValues: PaddingValues) {
 
     TextField(
         value = text,
@@ -238,5 +246,6 @@ private fun EditorField(text: String, onTextChange: (String) -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .fillMaxHeight()
+            .padding(paddingValues)
     )
 }
