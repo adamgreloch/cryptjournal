@@ -18,6 +18,12 @@
                 <action android:name="android.intent.action.MAIN" />
 
                 <category android:name="android.intent.category.LAUNCHER" />
+
+                <data
+                    android:host="*"
+                    android:mimeType="*/*"
+                    android:pathPattern=".*\\.txt.gpg"
+                    android:scheme="file" />
             </intent-filter>
         </activity>
     </application>

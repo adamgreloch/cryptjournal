@@ -1,5 +1,8 @@
 package com.adamgreloch.cryptjournal
 
+import android.annotation.SuppressLint
+import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.ContextWrapper
 import android.os.Bundle
@@ -27,7 +30,10 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import com.adamgreloch.cryptjournal.ui.theme.CryptjournalTheme
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import java.util.concurrent.Executor
+
 
 private lateinit var executor: Executor
 private lateinit var biometricPrompt: BiometricPrompt
@@ -94,15 +100,15 @@ private fun DefaultPreview(modifier: Modifier = Modifier) {
 
 @Composable
 private fun JournalView() {
-    var text by rememberSaveable { mutableStateOf("") }
+    var text = rememberSaveable { mutableStateOf("") }
 
     Scaffold(topBar = { AppBar(text) }) {
-        EditorField(text = text, onTextChange = { text = it })
+        EditorField(text = text.value, onTextChange = { text.value = it })
     }
 }
 
 @Composable
-private fun AppBar(text: String) {
+private fun AppBar(text: MutableState<String>) {
     var expanded by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
@@ -110,12 +116,12 @@ private fun AppBar(text: String) {
         title = { Text(stringResource(R.string.app_name)) },
         actions = {
             IconButton(onClick = {
-                openBuffer(context)
+                openBuffer(context, text)
             }) {
                 Icon(Icons.Filled.Add, contentDescription = "Open journal buffer")
             }
             IconButton(onClick = {
-                saveBuffer(text)
+                saveBuffer(text.value)
             }) {
                 Icon(Icons.Filled.Save, contentDescription = "Save journal buffer")
             }
@@ -127,6 +133,9 @@ private fun AppBar(text: String) {
                 onDismissRequest = { expanded = false }) {
                 DropdownMenuItem(onClick = { importSecretKey() }) {
                     Text("Import secret key")
+                }
+                DropdownMenuItem(onClick = { specifyJournalPath(context) }) {
+                    Text("Specify journal path")
                 }
                 DropdownMenuItem(onClick = { /* TODO */ }) {
                     Text("Key info")
@@ -140,17 +149,51 @@ private fun AppBar(text: String) {
     )
 }
 
-fun Context.getActivity(): FragmentActivity? = when (this) {
+fun specifyJournalPath(context: Context): String {
+    return ""
+}
+
+fun createNewEntryString() : String {
+    val current = LocalDateTime.now()
+    val dateFormat = DateTimeFormatter.ofPattern("eeee, dd.MM.yy")
+    val timeFormat = DateTimeFormatter.ofPattern("hh:mm")
+
+    val sb = StringBuilder()
+
+    sb.append(current.format(dateFormat))
+        .append("\n\n")
+        .append(current.format(timeFormat))
+        .append("\n\n")
+
+    return sb.toString()
+}
+
+fun Context.getActivity(): Activity = when (this) {
     is FragmentActivity -> this
     is ContextWrapper -> baseContext.getActivity()
-    else -> null
+    else -> throw ActivityNotFoundException()
 }
 
 private fun importSecretKey() {
 }
 
-private fun openBuffer(context: Context) {
-    createFile(context.getActivity() as FragmentActivity)
+private fun openBuffer(context: Context, text: MutableState<String>) {
+    val activity = context.getActivity()
+
+    val sharedPref = activity.getPreferences(Context.MODE_PRIVATE) ?: return
+    val lastFileName = sharedPref.getString("last_file_name", null)
+    val journalPath = sharedPref.getString("journal_path", null)
+
+    if (journalPath == null)
+        // Installation is fresh. Ask user to specify journal path
+        with (sharedPref.edit()) {
+            putString("journal_path", specifyJournalPath(context))
+            apply()
+        }
+
+    if (lastFileName == null) {
+        text.value = createNewEntryString()
+    }
 
     println(Log.INFO, null, "open")
 }
