@@ -2,14 +2,21 @@ package com.adamgreloch.cryptjournal
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.app.Instrumentation
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.ContextWrapper
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import android.util.Log.println
 import android.widget.Toast
 import androidx.activity.compose.setContent
+import androidx.activity.result.ActivityResult
+import androidx.activity.result.ActivityResultRegistry
+import androidx.activity.result.contract.ActivityResultContract
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -27,6 +34,8 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.sp
+import androidx.core.app.ActivityCompat.startActivityForResult
+import androidx.core.app.ActivityOptionsCompat
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import com.adamgreloch.cryptjournal.ui.theme.CryptjournalTheme
@@ -64,7 +73,9 @@ class MainActivity : FragmentActivity() {
                         .show()
                     setContent {
                         CryptjournalTheme {
-                            JournalView()
+                            JournalView(
+                                onOpenBufferPress = { openDocument() }
+                            )
                         }
                     }
                 }
@@ -86,6 +97,22 @@ class MainActivity : FragmentActivity() {
 
         biometricPrompt.authenticate(promptInfo)
     }
+
+    private val startOpenDocumentTreeActivity =
+        registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) {
+                uri -> setJournalPath(uri) }
+
+    fun openDocument() { startOpenDocumentTreeActivity.launch(null) }
+
+    private fun setJournalPath(uri: Uri?) {
+        val sharedPref = this.getPreferences(Context.MODE_PRIVATE) ?: return
+        println(Log.INFO, null, "Set journal_path to ${uri.toString()}")
+        with (sharedPref.edit()) {
+            putString("journal_path", uri.toString())
+            apply()
+        }
+    }
+
 }
 
 @Preview(
@@ -94,30 +121,27 @@ class MainActivity : FragmentActivity() {
 @Composable
 private fun DefaultPreview(modifier: Modifier = Modifier) {
     CryptjournalTheme {
-        JournalView()
+        JournalView {}
     }
 }
 
 @Composable
-private fun JournalView() {
+private fun JournalView(onOpenBufferPress: () -> Unit) {
     var text = rememberSaveable { mutableStateOf("") }
 
-    Scaffold(topBar = { AppBar(text) }) {
+    Scaffold(topBar = { AppBar(onOpenBufferPress, text) }) {
         EditorField(text = text.value, onTextChange = { text.value = it })
     }
 }
 
 @Composable
-private fun AppBar(text: MutableState<String>) {
+private fun AppBar(onOpenBufferPress: () -> Unit, text: MutableState<String>) {
     var expanded by remember { mutableStateOf(false) }
-    val context = LocalContext.current
 
     TopAppBar(
         title = { Text(stringResource(R.string.app_name)) },
         actions = {
-            IconButton(onClick = {
-                openBuffer(context, text)
-            }) {
+            IconButton(onClick = onOpenBufferPress) {
                 Icon(Icons.Filled.Add, contentDescription = "Open journal buffer")
             }
             IconButton(onClick = {
@@ -134,7 +158,7 @@ private fun AppBar(text: MutableState<String>) {
                 DropdownMenuItem(onClick = { importSecretKey() }) {
                     Text("Import secret key")
                 }
-                DropdownMenuItem(onClick = { specifyJournalPath(context) }) {
+                DropdownMenuItem(onClick = { specifyJournalPath() }) {
                     Text("Specify journal path")
                 }
                 DropdownMenuItem(onClick = { /* TODO */ }) {
@@ -149,7 +173,7 @@ private fun AppBar(text: MutableState<String>) {
     )
 }
 
-fun specifyJournalPath(context: Context): String {
+fun specifyJournalPath(): String {
     return ""
 }
 
@@ -177,8 +201,7 @@ fun Context.getActivity(): Activity = when (this) {
 private fun importSecretKey() {
 }
 
-private fun openBuffer(context: Context, text: MutableState<String>) {
-    val activity = context.getActivity()
+private fun openBuffer(activity: MainActivity, text: MutableState<String>) {
 
     val sharedPref = activity.getPreferences(Context.MODE_PRIVATE) ?: return
     val lastFileName = sharedPref.getString("last_file_name", null)
@@ -187,7 +210,7 @@ private fun openBuffer(context: Context, text: MutableState<String>) {
     if (journalPath == null)
         // Installation is fresh. Ask user to specify journal path
         with (sharedPref.edit()) {
-            putString("journal_path", specifyJournalPath(context))
+            putString("journal_path", specifyJournalPath())
             apply()
         }
 
