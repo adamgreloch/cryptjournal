@@ -1,3 +1,8 @@
 <resources>
     <string name="app_name">Cryptjournal</string>
+    <string name="LastFileNamePref">last_file_name</string>
+    <string name="JournalPathPref">journal_path</string>
+    <string name="CurrentFileNamePref">current_file_name</string>
+    <string name="CurrentEntryUri">current_entry_uri</string>
+    <string name="LastEntryUri">last_entry_uri</string>
 </resources>

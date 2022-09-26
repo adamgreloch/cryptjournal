@@ -1,6 +1,7 @@
 package com.adamgreloch.cryptjournal
 
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
@@ -27,8 +28,10 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.documentfile.provider.DocumentFile
 import androidx.fragment.app.FragmentActivity
 import com.adamgreloch.cryptjournal.ui.theme.CryptjournalTheme
+import java.io.*
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.Executor
@@ -89,23 +92,75 @@ class MainActivity : FragmentActivity() {
         biometricPrompt.authenticate(promptInfo)
     }
 
+    private fun askJournalDocumentTreePermission() {
+        startOpenDocumentTreeActivity.launch(null)
+    }
+
     private val startOpenDocumentTreeActivity =
         registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) {
-                uri -> setJournalPath(uri) }
+                uri ->
+            if (uri != null) {
+                setJournalPath(uri)
+
+                val contentResolver = applicationContext.contentResolver
+                val takeFlags: Int = Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                        Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                // Check for the freshest data.
+                contentResolver.takePersistableUriPermission(uri, takeFlags)
+            }
+        }
+
+    private fun arePermissionsGranted(uriString: String): Boolean {
+        // list of all persisted permissions for our app
+        val list = contentResolver.persistedUriPermissions
+        for (i in list.indices) {
+            val persistedUriString = list[i].uri.toString()
+
+            if (persistedUriString == uriString && list[i].isWritePermission && list[i].isReadPermission) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private val currentTime = LocalDateTime.now()
+    private val fileNameFormat = DateTimeFormatter.ofPattern("yyyyMMdd")
+    private val todayFileName = currentTime.format(fileNameFormat) + ".txt.pgp"
 
     fun openEntry(text: MutableState<String>) {
         val sharedPref = this.getPreferences(Context.MODE_PRIVATE) ?: return
-        val lastFileName = sharedPref.getString("last_file_name", null)
-        val journalPath = sharedPref.getString("journal_path", null)
+        val lastFileName = sharedPref.getString(getString(R.string.LastFileNamePref), "") ?: ""
+        var journalPath = sharedPref.getString(getString(R.string.JournalPathPref), "") ?: ""
 
-        if (journalPath == null)
-            // Installation is fresh. Ask user to specify journal path
-            startOpenDocumentTreeActivity.launch(null)
-        else
-            println(Log.INFO, null, "journal_path found")
+        println(Log.INFO, null, journalPath)
 
-        if (lastFileName == null) {
-            text.value = createNewEntryString()
+        val newPost = lastFileName != todayFileName
+
+        when {
+            journalPath == "" -> {
+                // Installation is fresh. Ask user for permission in specified journal directory.
+                Log.w(null, "journal URI not found")
+                Toast.makeText(this, "Specify journal directory and try again.", Toast.LENGTH_LONG)
+                    .show()
+                askJournalDocumentTreePermission()
+            }
+            arePermissionsGranted(journalPath) -> {
+                with (sharedPref.edit()) {
+                    putString(getString(R.string.CurrentFileNamePref), todayFileName)
+                    apply()
+                }
+
+                if (newPost) {
+                    createNewFile(Uri.parse(journalPath), todayFileName)
+                    text.value = createNewEntryString()
+                }
+                else {
+                    val currentEntryUri = sharedPref.getString(getString(R.string.CurrentEntryUri), "") ?: ""
+                    // Open entry from today and append current time.
+                    text.value = readFile(Uri.parse(currentEntryUri))
+                }
+            }
+            else -> Log.w(null, "permissions for specified URI not granted")
         }
 
         println(Log.INFO, null, "open")
@@ -113,17 +168,89 @@ class MainActivity : FragmentActivity() {
 
     private fun setJournalPath(uri: Uri?) {
         val sharedPref = this.getPreferences(Context.MODE_PRIVATE) ?: return
-        println(Log.INFO, null, "Set journal_path to ${uri.toString()}")
+
         with (sharedPref.edit()) {
-            putString("journal_path", uri.toString())
+            putString(getString(R.string.JournalPathPref), uri.toString())
+            apply()
+        }
+
+        println(Log.INFO, null, "Set journal_path to ${uri.toString()}")
+    }
+
+    private fun saveEntry(text: MutableState<String>) {
+        val sharedPref = this.getPreferences(Context.MODE_PRIVATE) ?: return
+        val currentEntryUri = sharedPref.getString(getString(R.string.CurrentEntryUri), "") ?: ""
+
+        with (sharedPref.edit()) {
+            putString(getString(R.string.LastFileNamePref), todayFileName)
+            apply()
+        }
+
+        writeFile(text.value, Uri.parse(currentEntryUri))
+    }
+
+    private fun readFile(uri: Uri): String {
+        val stringBuilder = StringBuilder()
+        contentResolver.openInputStream(uri)?.use { inputStream ->
+            BufferedReader(InputStreamReader(inputStream)).use { reader ->
+                var line: String? = reader.readLine()
+                while (line != null) {
+                    stringBuilder.append(line)
+                    line = reader.readLine()
+                }
+            }
+        }
+        return stringBuilder.toString()
+    }
+
+    private fun writeFile(content: String, uri: Uri) {
+        try {
+            contentResolver.openFileDescriptor(uri, "w")?.use {
+                FileOutputStream(it.fileDescriptor).use {
+                    it.write(content.toByteArray())
+                }
+            }
+        } catch (e: FileNotFoundException) {
+            e.printStackTrace()
+        } catch (e: IOException) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun createNewFile(dirUri: Uri, fileName: String) {
+        val dir = DocumentFile.fromTreeUri(this, dirUri)
+            ?: throw IOException("Could not specified find directory")
+        val file = dir.createFile("application/pgp-encrypted", fileName)
+
+        val sharedPref = this.getPreferences(Context.MODE_PRIVATE) ?: return
+        with (sharedPref.edit()) {
+            putString(getString(R.string.CurrentEntryUri), file?.uri.toString())
             apply()
         }
     }
 
-    private fun saveEntry(text: MutableState<String>) {
-        println(Log.VERBOSE, null, text.value)
+    private fun createNewEntryString() : String {
+        val current = LocalDateTime.now()
+        val dateFormat = DateTimeFormatter.ofPattern("eeee, dd.MM.yy")
+        val timeFormat = DateTimeFormatter.ofPattern("hh:mm")
+
+        val sb = StringBuilder()
+
+        sb.append(current.format(dateFormat))
+            .append("\n\n")
+            .append(current.format(timeFormat))
+            .append("\n\n")
+
+        return sb.toString()
     }
 
+}
+
+private fun specifyJournalPath(): String {
+    return ""
+}
+
+private fun importSecretKey() {
 }
 
 @Preview(
@@ -185,52 +312,6 @@ private fun AppBar(onOpenBufferPress: (MutableState<String>) -> Unit,
             }
         }
     )
-}
-
-fun specifyJournalPath(): String {
-    return ""
-}
-
-fun createNewEntryString() : String {
-    val current = LocalDateTime.now()
-    val dateFormat = DateTimeFormatter.ofPattern("eeee, dd.MM.yy")
-    val timeFormat = DateTimeFormatter.ofPattern("hh:mm")
-
-    val sb = StringBuilder()
-
-    sb.append(current.format(dateFormat))
-        .append("\n\n")
-        .append(current.format(timeFormat))
-        .append("\n\n")
-
-    return sb.toString()
-}
-
-private fun importSecretKey() {
-}
-
-private fun openBuffer(activity: MainActivity, text: MutableState<String>) {
-
-    val sharedPref = activity.getPreferences(Context.MODE_PRIVATE) ?: return
-    val lastFileName = sharedPref.getString("last_file_name", null)
-    val journalPath = sharedPref.getString("journal_path", null)
-
-    if (journalPath == null)
-        // Installation is fresh. Ask user to specify journal path
-        with (sharedPref.edit()) {
-            putString("journal_path", specifyJournalPath())
-            apply()
-        }
-
-    if (lastFileName == null) {
-        text.value = createNewEntryString()
-    }
-
-    println(Log.INFO, null, "open")
-}
-
-private fun saveBuffer(text: String) {
-    println(Log.VERBOSE, null, encryptText(text, "", "", ""))
 }
 
 @Composable
