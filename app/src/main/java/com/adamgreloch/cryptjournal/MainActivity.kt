@@ -130,7 +130,7 @@ class MainActivity : FragmentActivity() {
     fun openEntry(text: MutableState<String>) {
         val sharedPref = this.getPreferences(Context.MODE_PRIVATE) ?: return
         val lastFileName = sharedPref.getString(getString(R.string.LastFileNamePref), "") ?: ""
-        var journalPath = sharedPref.getString(getString(R.string.JournalPathPref), "") ?: ""
+        val journalPath = sharedPref.getString(getString(R.string.JournalPathPref), "") ?: ""
 
         println(Log.INFO, null, journalPath)
 
@@ -195,7 +195,7 @@ class MainActivity : FragmentActivity() {
             BufferedReader(InputStreamReader(inputStream)).use { reader ->
                 var line: String? = reader.readLine()
                 while (line != null) {
-                    stringBuilder.append(line)
+                    stringBuilder.append(line).appendLine()
                     line = reader.readLine()
                 }
             }
