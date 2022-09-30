@@ -10,10 +10,7 @@ import android.widget.Toast
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.biometric.BiometricPrompt
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.material.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -21,12 +18,15 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import androidx.documentfile.provider.DocumentFile
 import androidx.fragment.app.FragmentActivity
@@ -49,26 +49,36 @@ class MainActivity : FragmentActivity() {
 
         biometricPrompt = BiometricPrompt(this, executor,
             object : BiometricPrompt.AuthenticationCallback() {
-                override fun onAuthenticationError(errorCode: Int,
-                                                   errString: CharSequence) {
+                override fun onAuthenticationError(
+                    errorCode: Int,
+                    errString: CharSequence
+                ) {
                     super.onAuthenticationError(errorCode, errString)
-                    Toast.makeText(applicationContext,
-                        "Authentication error: $errString", Toast.LENGTH_SHORT)
+                    Toast.makeText(
+                        applicationContext,
+                        "Authentication error: $errString", Toast.LENGTH_SHORT
+                    )
                         .show()
                     finishAndRemoveTask()
                 }
 
                 override fun onAuthenticationSucceeded(
-                    result: BiometricPrompt.AuthenticationResult) {
+                    result: BiometricPrompt.AuthenticationResult
+                ) {
                     super.onAuthenticationSucceeded(result)
-                    Toast.makeText(applicationContext,
-                        "Authentication succeeded!", Toast.LENGTH_SHORT)
+                    Toast.makeText(
+                        applicationContext,
+                        "Authentication succeeded!", Toast.LENGTH_SHORT
+                    )
                         .show()
                     setContent {
                         CryptjournalTheme {
                             JournalView(
-                                onOpenBufferPress = { text -> openEntry(text) },
-                                onSaveBufferPress = { text -> saveEntry(text) }
+                                openEntry = { text -> openEntry(text) },
+                                saveEntry = { text -> saveEntry(text) },
+                                specifyJournalPath = { askJournalDocumentTreePermission() },
+                                showKeyInfo = { showKeyInfo() },
+                                reconfigurePGP = { reconfigurePGP() }
                             )
                         }
                     }
@@ -76,8 +86,10 @@ class MainActivity : FragmentActivity() {
 
                 override fun onAuthenticationFailed() {
                     super.onAuthenticationFailed()
-                    Toast.makeText(applicationContext, "Authentication failed",
-                        Toast.LENGTH_SHORT)
+                    Toast.makeText(
+                        applicationContext, "Authentication failed",
+                        Toast.LENGTH_SHORT
+                    )
                         .show()
                     finishAndRemoveTask()
                 }
@@ -97,8 +109,7 @@ class MainActivity : FragmentActivity() {
     }
 
     private val startOpenDocumentTreeActivity =
-        registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) {
-                uri ->
+        registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
             if (uri != null) {
                 setJournalPath(uri)
 
@@ -125,12 +136,22 @@ class MainActivity : FragmentActivity() {
 
     private val currentTime = LocalDateTime.now()
     private val fileNameFormat = DateTimeFormatter.ofPattern("yyyyMMdd")
+    private val dateFormat = DateTimeFormatter.ofPattern("eeee, dd.MM.yy")
+    private val timeFormat = DateTimeFormatter.ofPattern("hh:mm")
+
     private val todayFileName = currentTime.format(fileNameFormat) + ".txt.pgp"
+
+    private val newEntryString = StringBuilder()
+        .append(currentTime.format(dateFormat))
+        .append("\n\n")
+        .append(currentTime.format(timeFormat))
+        .append("\n\n")
+        .toString()
 
     fun openEntry(text: MutableState<String>) {
         val sharedPref = this.getPreferences(Context.MODE_PRIVATE) ?: return
-        val lastFileName = sharedPref.getString(getString(R.string.LastFileNamePref), "") ?: ""
-        val journalPath = sharedPref.getString(getString(R.string.JournalPathPref), "") ?: ""
+        val lastFileName = sharedPref.getString(getString(R.string.last_file_name_pref), "") ?: ""
+        val journalPath = sharedPref.getString(getString(R.string.journal_path_pref), "") ?: ""
 
         println(Log.INFO, null, journalPath)
 
@@ -145,32 +166,40 @@ class MainActivity : FragmentActivity() {
                 askJournalDocumentTreePermission()
             }
             arePermissionsGranted(journalPath) -> {
-                with (sharedPref.edit()) {
-                    putString(getString(R.string.CurrentFileNamePref), todayFileName)
+                with(sharedPref.edit()) {
+                    putString(getString(R.string.current_file_name_pref), todayFileName)
                     apply()
                 }
 
                 if (newPost) {
                     createNewFile(Uri.parse(journalPath), todayFileName)
-                    text.value = createNewEntryString()
-                }
-                else {
-                    val currentEntryUri = sharedPref.getString(getString(R.string.CurrentEntryUri), "") ?: ""
-                    // Open entry from today and append current time.
-                    text.value = readFile(Uri.parse(currentEntryUri))
+                    text.value = newEntryString
+                } else {
+                    // Read existing entry from today and append current time.
+                    val currentEntryUri =
+                        sharedPref.getString(getString(R.string.current_entry_uri_pref), "") ?: ""
+                    val sb = StringBuilder(readFile(Uri.parse(currentEntryUri)))
+
+                    sb.appendLine().append(currentTime.format(timeFormat)).appendLine()
+                    text.value = sb.toString()
                 }
             }
-            else -> Log.w(null, "permissions for specified URI not granted")
+            else -> {
+                Log.w(null, "permissions for specified URI not granted")
+                Toast.makeText(
+                    this,
+                    "Could not get necessary permissions for given URI.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
         }
-
-        println(Log.INFO, null, "open")
     }
 
     private fun setJournalPath(uri: Uri?) {
         val sharedPref = this.getPreferences(Context.MODE_PRIVATE) ?: return
 
-        with (sharedPref.edit()) {
-            putString(getString(R.string.JournalPathPref), uri.toString())
+        with(sharedPref.edit()) {
+            putString(getString(R.string.journal_path_pref), uri.toString())
             apply()
         }
 
@@ -179,10 +208,10 @@ class MainActivity : FragmentActivity() {
 
     private fun saveEntry(text: MutableState<String>) {
         val sharedPref = this.getPreferences(Context.MODE_PRIVATE) ?: return
-        val currentEntryUri = sharedPref.getString(getString(R.string.CurrentEntryUri), "") ?: ""
+        val currentEntryUri = sharedPref.getString(getString(R.string.current_entry_uri_pref), "") ?: ""
 
-        with (sharedPref.edit()) {
-            putString(getString(R.string.LastFileNamePref), todayFileName)
+        with(sharedPref.edit()) {
+            putString(getString(R.string.last_file_name_pref), todayFileName)
             apply()
         }
 
@@ -223,100 +252,96 @@ class MainActivity : FragmentActivity() {
         val file = dir.createFile("application/pgp-encrypted", fileName)
 
         val sharedPref = this.getPreferences(Context.MODE_PRIVATE) ?: return
-        with (sharedPref.edit()) {
-            putString(getString(R.string.CurrentEntryUri), file?.uri.toString())
+        with(sharedPref.edit()) {
+            putString(getString(R.string.current_entry_uri_pref), file?.uri.toString())
             apply()
         }
     }
 
-    private fun createNewEntryString() : String {
-        val current = LocalDateTime.now()
-        val dateFormat = DateTimeFormatter.ofPattern("eeee, dd.MM.yy")
-        val timeFormat = DateTimeFormatter.ofPattern("hh:mm")
-
-        val sb = StringBuilder()
-
-        sb.append(current.format(dateFormat))
-            .append("\n\n")
-            .append(current.format(timeFormat))
-            .append("\n\n")
-
-        return sb.toString()
+    private fun showKeyInfo() {
     }
 
-}
-
-private fun specifyJournalPath(): String {
-    return ""
-}
-
-private fun importSecretKey() {
+    private fun reconfigurePGP() {
+        // Must ask for user confirmation before proceeding further
+    }
 }
 
 @Preview(
     showBackground = true,
-    showSystemUi = true)
+    showSystemUi = true
+)
 @Composable
 private fun DefaultPreview(modifier: Modifier = Modifier) {
     CryptjournalTheme {
-        JournalView({}, {})
+        JournalView({}, {}, {}, {}, {})
     }
 }
 
 @Composable
-private fun JournalView(onOpenBufferPress: (MutableState<String>) -> Unit,
-                        onSaveBufferPress: (MutableState<String>) -> Unit) {
+private fun JournalView(
+    openEntry: (MutableState<String>) -> Unit,
+    saveEntry: (MutableState<String>) -> Unit,
+    specifyJournalPath: () -> Unit,
+    showKeyInfo: () -> Unit,
+    reconfigurePGP: () -> Unit
+) {
     val text = rememberSaveable { mutableStateOf("") }
 
+    var aboutOpen by remember { mutableStateOf(false) }
+    var expanded by remember { mutableStateOf(false) }
+
     Scaffold(
-        topBar = { AppBar(onOpenBufferPress, onSaveBufferPress, text) },
+        topBar = {
+            TopAppBar(
+                title = { Text(stringResource(R.string.app_name)) },
+                actions = {
+                    IconButton(onClick = { openEntry(text) }) {
+                        Icon(Icons.Filled.Add, contentDescription = "Open journal buffer")
+                    }
+                    IconButton(onClick = { saveEntry(text) }) {
+                        Icon(Icons.Filled.Save, contentDescription = "Save journal buffer")
+                    }
+                    IconButton(onClick = { expanded = true }) {
+                        Icon(Icons.Filled.MoreVert, contentDescription = "More")
+                    }
+                    DropdownMenu(
+                        expanded = expanded,
+                        onDismissRequest = { expanded = false }) {
+                        DropdownMenuItem(onClick = { specifyJournalPath() }) {
+                            Text("Specify journal path")
+                        }
+                        DropdownMenuItem(onClick = { reconfigurePGP() }) {
+                            Text("Reconfigure PGP")
+                        }
+                        DropdownMenuItem(onClick = { showKeyInfo() }) {
+                            Text("Key info")
+                        }
+                        Divider()
+                        DropdownMenuItem(onClick = { aboutOpen = true }) {
+                            Text("About")
+                        }
+                    }
+                }
+            )
+        },
         content = { paddingValues ->
-            EditorField(text = text.value, onTextChange = { text.value = it }, paddingValues = paddingValues)
+            if (aboutOpen)
+                AboutDialog(onDismissRequest = { aboutOpen = false })
+
+            EditorField(
+                text = text.value,
+                onTextChange = { text.value = it },
+                paddingValues = paddingValues
+            )
         })
 }
 
 @Composable
-private fun AppBar(onOpenBufferPress: (MutableState<String>) -> Unit,
-                   onSaveBufferPress: (MutableState<String>) -> Unit,
-                   text: MutableState<String>) {
-    var expanded by remember { mutableStateOf(false) }
-
-    TopAppBar(
-        title = { Text(stringResource(R.string.app_name)) },
-        actions = {
-            IconButton(onClick = { onOpenBufferPress(text) }) {
-                Icon(Icons.Filled.Add, contentDescription = "Open journal buffer")
-            }
-            IconButton(onClick = { onSaveBufferPress(text) }) {
-                Icon(Icons.Filled.Save, contentDescription = "Save journal buffer")
-            }
-            IconButton(onClick = { expanded = true }) {
-                Icon(Icons.Filled.MoreVert, contentDescription = "More")
-            }
-            DropdownMenu(
-                expanded = expanded,
-                onDismissRequest = { expanded = false }) {
-                DropdownMenuItem(onClick = { importSecretKey() }) {
-                    Text("Import secret key")
-                }
-                DropdownMenuItem(onClick = { specifyJournalPath() }) {
-                    Text("Specify journal path")
-                }
-                DropdownMenuItem(onClick = { /* TODO */ }) {
-                    Text("Key info")
-                }
-                Divider()
-                DropdownMenuItem(onClick = { /* TODO */ }) {
-                    Text("About")
-                }
-            }
-        }
-    )
-}
-
-@Composable
-private fun EditorField(text: String, onTextChange: (String) -> Unit, paddingValues: PaddingValues) {
-
+private fun EditorField(
+    text: String,
+    onTextChange: (String) -> Unit,
+    paddingValues: PaddingValues
+) {
     TextField(
         value = text,
         onValueChange = onTextChange,
@@ -329,4 +354,29 @@ private fun EditorField(text: String, onTextChange: (String) -> Unit, paddingVal
             .fillMaxHeight()
             .padding(paddingValues)
     )
+}
+
+@Composable
+private fun AboutDialog(onDismissRequest: () -> Unit) {
+    Dialog(onDismissRequest = onDismissRequest) {
+        Column {
+            Text(
+                text = stringResource(R.string.app_name),
+                fontSize = 36.sp,
+                modifier = Modifier.align(Alignment.CenterHorizontally)
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = stringResource(R.string.short_description),
+                fontSize = 16.sp,
+                modifier = Modifier.align(Alignment.CenterHorizontally)
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = stringResource(R.string.github_url),
+                fontSize = 16.sp,
+                modifier = Modifier.align(Alignment.CenterHorizontally)
+            )
+        }
+    }
 }

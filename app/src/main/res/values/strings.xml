@@ -1,8 +1,10 @@
 <resources>
-    <string name="app_name">Cryptjournal</string>
-    <string name="LastFileNamePref">last_file_name</string>
-    <string name="JournalPathPref">journal_path</string>
-    <string name="CurrentFileNamePref">current_file_name</string>
-    <string name="CurrentEntryUri">current_entry_uri</string>
-    <string name="LastEntryUri">last_entry_uri</string>
+    <string name="app_name">cryptjournal</string>
+    <string name="last_file_name_pref">last_file_name</string>
+    <string name="journal_path_pref">journal_path</string>
+    <string name="current_file_name_pref">current_file_name</string>
+    <string name="current_entry_uri_pref">current_entry_uri</string>
+    <string name="last_entry_uri_pref">last_entry_uri</string>
+    <string name="github_url">github.com/adamgreloch/cryptjournal</string>
+    <string name="short_description">Lightweight encrypted journal app</string>
 </resources>
