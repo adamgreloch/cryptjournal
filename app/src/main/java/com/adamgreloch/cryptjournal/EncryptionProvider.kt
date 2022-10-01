@@ -17,11 +17,10 @@ import java.io.InputStream
 
 class EncryptionProvider(private val pref: SharedPreferences) {
 
-    fun importKey(userId: String, asciiSecretKey: String, password: String) {
+    fun importKey(asciiSecretKey: String, password: String) {
         val secretKeyRing = readKeyRing().secretKeyRing(asciiSecretKey)
 
         with (pref.edit()) {
-            putString("user_id", userId)
             putString("secret_key", asciiSecretKey)
             putString("public_key", asciiArmor(extractCertificate(secretKeyRing)))
             putString("password", password)
