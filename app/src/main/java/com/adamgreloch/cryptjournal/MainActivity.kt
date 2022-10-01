@@ -30,18 +30,26 @@ import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import androidx.documentfile.provider.DocumentFile
 import androidx.fragment.app.FragmentActivity
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 import com.adamgreloch.cryptjournal.ui.theme.CryptjournalTheme
 import java.io.*
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.Executor
 
-
 private lateinit var executor: Executor
 private lateinit var biometricPrompt: BiometricPrompt
 private lateinit var promptInfo: BiometricPrompt.PromptInfo
+private lateinit var encryptionProvider: EncryptionProvider
 
 class MainActivity : FragmentActivity() {
+    private val currentTime = LocalDateTime.now()
+    private val fileNameFormat = DateTimeFormatter.ofPattern("yyyyMMdd")
+    private val dateFormat = DateTimeFormatter.ofPattern("eeee, dd.MM.yy")
+    private val timeFormat = DateTimeFormatter.ofPattern("hh:mm")
+    private val todayFileName = currentTime.format(fileNameFormat) + ".txt.pgp"
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -71,6 +79,19 @@ class MainActivity : FragmentActivity() {
                         "Authentication succeeded!", Toast.LENGTH_SHORT
                     )
                         .show()
+
+                    val masterKey = MasterKey.Builder(applicationContext).build()
+
+                    val encryptedPrefs = EncryptedSharedPreferences.create(
+                        applicationContext,
+                        "gpg_storage",
+                        masterKey,
+                        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+                    )
+
+                    encryptionProvider = EncryptionProvider(encryptedPrefs)
+
                     setContent {
                         CryptjournalTheme {
                             JournalView(
@@ -96,9 +117,9 @@ class MainActivity : FragmentActivity() {
             })
 
         promptInfo = BiometricPrompt.PromptInfo.Builder()
-            .setTitle("Access restricted")
-            .setSubtitle("Log in to Cryptjournal using your biometric credential")
-            .setNegativeButtonText("Use account password")
+            .setTitle(getString(R.string.biometric_prompt_title))
+            .setSubtitle(getString(R.string.biometric_prompt_subtitle))
+            .setNegativeButtonText(getString(R.string.biometric_prompt_negative_button_text))
             .build()
 
         biometricPrompt.authenticate(promptInfo)
@@ -134,19 +155,13 @@ class MainActivity : FragmentActivity() {
         return false
     }
 
-    private val currentTime = LocalDateTime.now()
-    private val fileNameFormat = DateTimeFormatter.ofPattern("yyyyMMdd")
-    private val dateFormat = DateTimeFormatter.ofPattern("eeee, dd.MM.yy")
-    private val timeFormat = DateTimeFormatter.ofPattern("hh:mm")
-
-    private val todayFileName = currentTime.format(fileNameFormat) + ".txt.pgp"
-
-    private val newEntryString = StringBuilder()
-        .append(currentTime.format(dateFormat))
-        .append("\n\n")
-        .append(currentTime.format(timeFormat))
-        .append("\n\n")
-        .toString()
+    private val newEntryString = with(StringBuilder()) {
+        append(currentTime.format(dateFormat))
+        append("\n\n")
+        append(currentTime.format(timeFormat))
+        append("\n\n")
+        toString()
+    }
 
     fun openEntry(text: MutableState<String>) {
         val sharedPref = this.getPreferences(Context.MODE_PRIVATE) ?: return

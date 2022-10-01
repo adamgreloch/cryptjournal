@@ -7,4 +7,7 @@
     <string name="last_entry_uri_pref">last_entry_uri</string>
     <string name="github_url">github.com/adamgreloch/cryptjournal</string>
     <string name="short_description">Lightweight encrypted journal app</string>
+    <string name="biometric_prompt_title">Access restricted</string>
+    <string name="biometric_prompt_subtitle">Log in to Cryptjournal using your biometric credential</string>
+    <string name="biometric_prompt_negative_button_text">Use account password</string>
 </resources>
