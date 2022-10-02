@@ -9,6 +9,7 @@ import org.pgpainless.encryption_signing.EncryptionOptions
 import org.pgpainless.encryption_signing.EncryptionStream
 import org.pgpainless.encryption_signing.ProducerOptions
 import org.pgpainless.encryption_signing.SigningOptions
+import org.pgpainless.key.info.KeyRingInfo
 import org.pgpainless.key.protection.SecretKeyRingProtector
 import org.pgpainless.util.Passphrase
 import java.io.ByteArrayOutputStream
@@ -16,6 +17,15 @@ import java.io.InputStream
 import java.lang.NullPointerException
 
 class EncryptionProvider(private val pref: SharedPreferences) {
+
+    private lateinit var secretKeyInfo : KeyRingInfo
+
+    init {
+        if (isConfigured()) {
+            val secretKeyRing = readKeyRing().secretKeyRing(getAsciiSecretKey())
+            secretKeyInfo = inspectKeyRing(secretKeyRing)
+        }
+    }
 
     fun importKey(asciiSecretKey: String, password: String) : Boolean {
         val secretKeyRing =
@@ -31,6 +41,7 @@ class EncryptionProvider(private val pref: SharedPreferences) {
 
         with (pref.edit()) {
             putString("user_id", secretKeyInfo.primaryUserId)
+            putLong("key_id", secretKeyInfo.keyId)
             putString("secret_key", asciiSecretKey)
             putString("public_key", asciiArmor(extractCertificate(secretKeyRing)))
             putString("password", password)
@@ -48,7 +59,19 @@ class EncryptionProvider(private val pref: SharedPreferences) {
     }
 
     fun getUserId() : String {
-        return pref.getString("user_id", null) ?: ""
+        return secretKeyInfo.primaryUserId ?: ""
+    }
+
+    fun getKeyId() : Long {
+        return secretKeyInfo.keyId
+    }
+
+    fun getKeyCreationDate() : String {
+        return secretKeyInfo.creationDate.toString()
+    }
+
+    fun getAlgorithmName() : String {
+        return secretKeyInfo.algorithm.toString()
     }
 
     private fun getAsciiSecretKey() : String {

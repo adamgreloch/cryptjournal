@@ -26,6 +26,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
@@ -389,6 +390,7 @@ private fun JournalView(
     val password = remember { mutableStateOf("") }
 
     var aboutOpen by remember { mutableStateOf(false) }
+    var keyInfoOpen by remember { mutableStateOf(false) }
     var configurationOpen by remember { mutableStateOf(false) }
     var expanded by remember { mutableStateOf(false) }
 
@@ -418,7 +420,7 @@ private fun JournalView(
                         }) {
                             Text("Reconfigure PGP")
                         }
-                        DropdownMenuItem(onClick = { showKeyInfo() }) {
+                        DropdownMenuItem(onClick = { keyInfoOpen = true }) {
                             Text("Key info")
                         }
                         Divider()
@@ -441,6 +443,9 @@ private fun JournalView(
                     onDismissRequest = { configurationOpen = false },
                     onConfirmPress = { configurationOpen = !configurePGP(password.value) }
                 )
+
+            if (keyInfoOpen)
+                KeyInfoDialog(onDismissRequest = { keyInfoOpen = false })
 
             EditorField(
                 text = text.value,
@@ -521,7 +526,7 @@ private fun ConfigurationDialog(
             color = Color.DarkGray,
             shape = RoundedCornerShape(size = 10.dp)
         ) {
-            Column(Modifier.padding(all = 16.dp)) {
+            Column(Modifier.padding(all = 8.dp)) {
                 Text(
                     text = "Set your journal directory path.",
                     fontSize = 16.sp,
@@ -561,6 +566,38 @@ private fun ConfigurationDialog(
                         Text("Abort")
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun KeyInfoDialog(onDismissRequest: () -> Unit) {
+    Dialog(onDismissRequest = onDismissRequest) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .wrapContentHeight(),
+            color = Color.DarkGray,
+            shape = RoundedCornerShape(size = 10.dp)
+        ) {
+            Column(Modifier.padding(all = 8.dp)) {
+                Text(
+                    text = "Key info",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = "${encryptionProvider.getUserId()}\n"
+                    + "${encryptionProvider.getAlgorithmName()} ${encryptionProvider.getKeyId()}",
+                    fontSize = 16.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+                Text(
+                    text = "Key created on ${encryptionProvider.getKeyCreationDate()}",
+                    fontSize = 16.sp
+                )
             }
         }
     }
