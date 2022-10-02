@@ -3,10 +3,7 @@ package com.adamgreloch.cryptjournal
 import android.content.SharedPreferences
 import android.util.Log
 import org.bouncycastle.util.io.Streams
-import org.jetbrains.annotations.TestOnly
-import org.pgpainless.PGPainless
 import org.pgpainless.PGPainless.*
-import org.pgpainless.algorithm.DocumentSignatureType
 import org.pgpainless.decryption_verification.ConsumerOptions
 import org.pgpainless.encryption_signing.EncryptionOptions
 import org.pgpainless.encryption_signing.EncryptionStream
@@ -82,9 +79,8 @@ class EncryptionProvider(private val pref: SharedPreferences) {
                 ProducerOptions.signAndEncrypt(
                 EncryptionOptions.encryptCommunications()
                     .addRecipient(cert),
-                    SigningOptions()
-                        .addInlineSignature(protector, secret, DocumentSignatureType.CANONICAL_TEXT_DOCUMENT)
-                ).setAsciiArmor(true)
+                    SigningOptions().addSignature(protector, secret))
+                .setAsciiArmor(true)
             )
 
         Streams.pipeAll(plainStream, encryptor)
