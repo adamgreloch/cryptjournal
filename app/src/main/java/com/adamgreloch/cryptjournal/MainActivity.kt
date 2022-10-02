@@ -215,7 +215,7 @@ class MainActivity : FragmentActivity() {
                     // Read existing entry from today and append current time.
                     val currentEntryUri =
                         sharedPref.getString(getString(R.string.current_entry_uri_pref), "") ?: ""
-                    val sb = StringBuilder(readFile(Uri.parse(currentEntryUri)))
+                    val sb = StringBuilder(readEncryptedFile(Uri.parse(currentEntryUri)))
 
                     sb.appendLine().append(currentTime.format(timeFormat)).appendLine()
                     text.value = sb.toString()
@@ -254,7 +254,9 @@ class MainActivity : FragmentActivity() {
             apply()
         }
 
-        writeFile(text.value, Uri.parse(currentEntryUri))
+        text.value += "\n"
+
+        writeEncryptedFile(text.value, Uri.parse(currentEntryUri))
     }
 
     private fun readFile(uri: Uri): String {
@@ -271,12 +273,39 @@ class MainActivity : FragmentActivity() {
         return stringBuilder.toString()
     }
 
-    private fun writeFile(content: String, uri: Uri) {
+    private fun readEncryptedFile(uri: Uri): String {
+        if (!encryptionProvider.isConfigured()) {
+            Toast.makeText(
+                this,
+                "Could not read a file. Encryption is not configured!",
+                Toast.LENGTH_LONG
+            ).show()
+            return ""
+        }
+
+        return encryptionProvider.decryptText(readFile(uri))
+    }
+
+    private fun writeEncryptedFile(content: String, uri: Uri) {
+        if (!encryptionProvider.isConfigured()) {
+            Toast.makeText(
+                this,
+                "Could not write a file. Encryption is not configured!",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+
         try {
             contentResolver.openFileDescriptor(uri, "w")?.use {
                 FileOutputStream(it.fileDescriptor).use {
-                    it.write(content.toByteArray())
+                    it.write(encryptionProvider.encryptText(content).toByteArray())
                 }
+                Toast.makeText(
+                    this,
+                    "Entry encrypted and saved.",
+                    Toast.LENGTH_LONG
+                ).show()
             }
         } catch (e: FileNotFoundException) {
             e.printStackTrace()
@@ -314,13 +343,24 @@ class MainActivity : FragmentActivity() {
         pickKeyFile.launch(arrayOf("*/*"))
     }
 
-    private fun configurePGP(keyPassword: String) {
+    private fun configurePGP(keyPassword: String) : Boolean {
         if (keyFilePath == Uri.EMPTY || keyFilePath == null)
             throw IOException("Key file path not chosen")
 
         val asciiSecretKey = readFile(keyFilePath)
 
-        encryptionProvider.importKey(asciiSecretKey, keyPassword)
+        if (encryptionProvider.importKey(asciiSecretKey, keyPassword))
+            Toast.makeText(
+                this,
+                "Key imported successfully! (userId: ${encryptionProvider.getUserId()})",
+                Toast.LENGTH_LONG
+            ).show()
+        else {
+            Toast.makeText(this, "Key import failed!", Toast.LENGTH_LONG).show()
+            return false
+        }
+
+        return true
     }
 }
 
@@ -331,7 +371,7 @@ class MainActivity : FragmentActivity() {
 @Composable
 private fun DefaultPreview(modifier: Modifier = Modifier) {
     CryptjournalTheme {
-        JournalView({false}, {}, {}, {}, {}, {}, {})
+        JournalView({false}, {}, {}, {}, {}, {false}, {})
     }
 }
 
@@ -342,14 +382,14 @@ private fun JournalView(
     specifyJournalPath: () -> Unit,
     showKeyInfo: () -> Unit,
     reconfigurePGP: () -> Unit,
-    configurePGP: (String) -> Unit,
+    configurePGP: (String) -> Boolean,
     onPickKeyFilePress: () -> Unit
 ) {
     val text = rememberSaveable { mutableStateOf("") }
     val password = remember { mutableStateOf("") }
 
     var aboutOpen by remember { mutableStateOf(false) }
-    var askPasswordOpen by remember { mutableStateOf(false) }
+    var configurationOpen by remember { mutableStateOf(false) }
     var expanded by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -357,7 +397,7 @@ private fun JournalView(
             TopAppBar(
                 title = { Text(stringResource(R.string.app_name)) },
                 actions = {
-                    IconButton(onClick = { askPasswordOpen = openEntry(text) }) {
+                    IconButton(onClick = { configurationOpen = openEntry(text) }) {
                         Icon(Icons.Filled.Add, contentDescription = "Open journal buffer")
                     }
                     IconButton(onClick = { saveEntry(text) }) {
@@ -372,7 +412,10 @@ private fun JournalView(
                         DropdownMenuItem(onClick = { specifyJournalPath() }) {
                             Text("Specify journal path")
                         }
-                        DropdownMenuItem(onClick = { reconfigurePGP() }) {
+                        DropdownMenuItem(onClick = {
+                            // TODO: reconfigurePGP()
+                            configurationOpen = true
+                        }) {
                             Text("Reconfigure PGP")
                         }
                         DropdownMenuItem(onClick = { showKeyInfo() }) {
@@ -390,13 +433,13 @@ private fun JournalView(
             if (aboutOpen)
                 AboutDialog(onDismissRequest = { aboutOpen = false })
 
-            if (askPasswordOpen)
+            if (configurationOpen)
                 ConfigurationDialog(text = password.value,
                     specifyJournalPath = specifyJournalPath,
                     onTextChange = { password.value = it },
                     onPickKeyFilePress = onPickKeyFilePress,
-                    onDismissRequest = { askPasswordOpen = false},
-                    onConfirmPress = { configurePGP(password.value) }
+                    onDismissRequest = { configurationOpen = false },
+                    onConfirmPress = { configurationOpen = !configurePGP(password.value) }
                 )
 
             EditorField(
@@ -482,7 +525,6 @@ private fun ConfigurationDialog(
                 Text(
                     text = "Set your journal directory path.",
                     fontSize = 16.sp,
-                    modifier = Modifier.align(Alignment.CenterHorizontally)
                 )
                 Button( onClick = specifyJournalPath ) {
                     Text("Specify path")
@@ -491,7 +533,6 @@ private fun ConfigurationDialog(
                 Text(
                     text = "Pick your GPG secret key file.",
                     fontSize = 16.sp,
-                    modifier = Modifier.align(Alignment.CenterHorizontally)
                 )
                 Spacer(Modifier.height(8.dp))
                 Button( onClick = onPickKeyFilePress ) {
@@ -501,7 +542,6 @@ private fun ConfigurationDialog(
                 Text(
                     text = "Enter your PGP secret key password.",
                     fontSize = 16.sp,
-                    modifier = Modifier.align(Alignment.CenterHorizontally)
                 )
                 Spacer(Modifier.height(8.dp))
                 TextField(
@@ -512,11 +552,14 @@ private fun ConfigurationDialog(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
                 )
                 Spacer(Modifier.height(8.dp))
-                Button( onClick = onConfirmPress ) {
-                    Text("OK")
-                }
-                Button( onClick = onDismissRequest ) {
-                    Text("Abort")
+                Row(modifier = Modifier.align(Alignment.End)) {
+                    Button(onClick = onConfirmPress) {
+                        Text("OK")
+                    }
+                    Spacer(Modifier.width(4.dp))
+                    Button(onClick = onDismissRequest) {
+                        Text("Abort")
+                    }
                 }
             }
         }

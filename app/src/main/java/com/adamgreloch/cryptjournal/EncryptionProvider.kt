@@ -1,7 +1,9 @@
 package com.adamgreloch.cryptjournal
 
 import android.content.SharedPreferences
+import android.util.Log
 import org.bouncycastle.util.io.Streams
+import org.jetbrains.annotations.TestOnly
 import org.pgpainless.PGPainless
 import org.pgpainless.PGPainless.*
 import org.pgpainless.algorithm.DocumentSignatureType
@@ -14,18 +16,42 @@ import org.pgpainless.key.protection.SecretKeyRingProtector
 import org.pgpainless.util.Passphrase
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
+import java.lang.NullPointerException
 
 class EncryptionProvider(private val pref: SharedPreferences) {
 
-    fun importKey(asciiSecretKey: String, password: String) {
-        val secretKeyRing = readKeyRing().secretKeyRing(asciiSecretKey)
+    fun importKey(asciiSecretKey: String, password: String) : Boolean {
+        val secretKeyRing =
+            readKeyRing().secretKeyRing(asciiSecretKey)
+                ?: throw NullPointerException("Secret key string is an empty string.")
+
+        val secretKeyInfo = inspectKeyRing(secretKeyRing)
+
+        if (!secretKeyInfo.isSecretKey) {
+            Log.w("EncryptionProvider", "asciiSecretKey is not a secret key!")
+            return false
+        }
 
         with (pref.edit()) {
+            putString("user_id", secretKeyInfo.primaryUserId)
             putString("secret_key", asciiSecretKey)
             putString("public_key", asciiArmor(extractCertificate(secretKeyRing)))
             putString("password", password)
             apply()
         }
+
+        return true
+    }
+
+    fun isConfigured() : Boolean {
+        return pref.contains("user_id")
+                && pref.contains("secret_key")
+                && pref.contains("public_key")
+                && pref.contains("password")
+    }
+
+    fun getUserId() : String {
+        return pref.getString("user_id", null) ?: ""
     }
 
     private fun getAsciiSecretKey() : String {
